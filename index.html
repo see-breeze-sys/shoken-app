@@ -20,7 +20,7 @@
 <body>
 
 <div class="card">
-  <h1>📍 商圏人口チェッカー (v4)</h1>
+  <h1>📍 商圏人口チェッカー (v5)</h1>
   <input type="text" id="addressInput" placeholder="例: 千葉県市川市湊新田2-1-1">
   <button id="searchBtn" onclick="analyzeMarket()">分析開始</button>
 
@@ -37,7 +37,7 @@
   const APP_ID = 'E30b474571fbb971b88035e2fc2a96b296fa1b4b';
 
   async function analyzeMarket() {
-    let addressInput = document.getElementById('addressInput').value.trim();
+    const rawInput = document.getElementById('addressInput').value.trim();
     const errorDiv = document.getElementById('error');
     const resultDiv = document.getElementById('result');
     const btn = document.getElementById('searchBtn');
@@ -45,7 +45,7 @@
     errorDiv.innerText = '';
     resultDiv.style.display = 'none';
 
-    if (!addressInput) {
+    if (!rawInput) {
       errorDiv.innerText = '住所を入力してください。';
       return;
     }
@@ -53,41 +53,45 @@
     btn.disabled = true;
     btn.innerText = '検索中...';
 
-    // 番地数字（1-2-3や1丁目など）を取り除いて町名レベルにする
-    const cleanAddress = addressInput.replace(/[0-9０-9-ー丁目番地号]+$/g, '');
-
     try {
-      // 1. ジオコーディングAPI (HeartRails Express API)
-      let geoUrl = `https://express.heartrails.com/api/json?method=getLocations&location=${encodeURIComponent(cleanAddress)}`;
-      let geoRes = await fetch(geoUrl);
-      let geoData = await geoRes.json();
+      // 1. 住所から数字や番地（2-1-1や1丁目など）を取り除いて町名レベルで安定検索
+      const cleanAddress = rawInput.replace(/[0-9０-9-ー丁目番地号]+$/g, '');
+      const searchWord = cleanAddress || rawInput;
 
-      if (!geoData.response || !geoData.response.location || geoData.response.location.length === 0) {
-        // 再度元の文字列で検索試行
-        geoUrl = `https://express.heartrails.com/api/json?method=getLocations&location=${encodeURIComponent(addressInput)}`;
-        geoRes = await fetch(geoUrl);
-        geoData = await geoRes.json();
+      // 2. ジオコーディング (HeartRails API)
+      const geoUrl = `https://express.heartrails.com/api/json?method=getLocations&location=${encodeURIComponent(searchWord)}`;
+      const geoRes = await fetch(geoUrl);
+      if (!geoRes.ok) throw new Error('位置情報サーバー通信エラー');
+      
+      const geoData = await geoRes.json();
+      const locations = geoData?.response?.location;
+
+      if (!locations || locations.length === 0) {
+        throw new Error('位置情報が見つかりませんでした。「千葉県市川市湊新田」のように入力してみてください。');
       }
 
-      if (!geoData.response || !geoData.response.location || geoData.response.location.length === 0) {
-        throw new Error('住所の位置情報を特定できませんでした。「市区町村名＋町名」で入力してみてください。');
+      const loc = locations[0];
+      const lat = Number(loc.y);
+      const lon = Number(loc.x);
+
+      if (isNaN(lat) || isNaN(lon)) {
+        throw new Error('緯度経度の取得に失敗しました。');
       }
 
-      const loc = geoData.response.location[0];
-      const lat = parseFloat(loc.y); // 緯度
-      const lon = parseFloat(loc.x); // 経度
-
-      // 2. 1kmメッシュコード計算 (8桁)
+      // 3. 1kmメッシュコード計算 (8桁)
       const meshCode = get1kmMeshCode(lat, lon);
 
-      // 3. e-Stat API (2020年国勢調査 1kmメッシュ人口)
+      // 4. e-Stat API 呼び出し
       const statsUrl = `https://api.e-stat.go.jp/rest/3.0/app/json/getStatsData?appId=${APP_ID}&statsDataId=0003448228&cdArea=${meshCode}`;
       const statsRes = await fetch(statsUrl);
+      if (!statsRes.ok) throw new Error('e-Stat サーバー通信エラー');
+      
       const statsData = await statsRes.json();
-
       const resultStatus = statsData?.GET_STATS_DATA?.RESULT;
-      if (resultStatus && resultStatus.STATUS !== 0) {
-        throw new Error(`e-Statエラー [コード:${resultStatus.STATUS}]: ${resultStatus.ERROR_MSG}`);
+
+      if (!resultStatus || resultStatus.STATUS !== 0) {
+        const msg = resultStatus ? resultStatus.ERROR_MSG : '未知のエラー';
+        throw new Error(`e-Statエラー: ${msg}`);
       }
 
       const dataInf = statsData?.GET_STATS_DATA?.STATISTICAL_DATA?.DATA_INF;
@@ -101,7 +105,7 @@
 
       // 結果表示
       document.getElementById('popCount').innerText = `${Number(totalPop).toLocaleString()} 人`;
-      document.getElementById('locationName').innerText = `該当エリア: ${loc.prefecture}${loc.city}${loc.town} (メッシュ:${meshCode})`;
+      document.getElementById('locationName').innerText = `該当エリア: ${loc.prefecture}${loc.city}${loc.town} (メッシュコード: ${meshCode})`;
       resultDiv.style.display = 'block';
 
     } catch (err) {
