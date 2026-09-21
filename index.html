@@ -9,134 +9,34 @@
     .card { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); max-width: 500px; margin: 0 auto; }
     h1 { font-size: 1.2rem; margin-top: 0; text-align: center; }
     input[type="text"] { width: 100%; padding: 12px; border: 1px solid #ccc; border-radius: 8px; font-size: 1rem; box-sizing: border-box; margin-bottom: 12px; }
-    button { width: 100%; padding: 12px; background: #007aff; color: white; border: none; border-radius: 8px; font-size: 1rem; font-weight: bold; cursor: pointer; }
-    button:disabled { background: #ccc; }
-    .result { margin-top: 20px; padding: 15px; background: #eef6ff; border-radius: 8px; display: none; }
-    .result-title { font-size: 0.9rem; color: #666; }
-    .result-val { font-size: 1.8rem; font-weight: bold; color: #007aff; margin: 5px 0; }
-    .error { color: #d93025; margin-top: 10px; font-size: 0.85rem; line-height: 1.4; word-break: break-all; }
+    .btn { display: block; width: 100%; padding: 12px 0; background: #007aff; color: white; border: none; border-radius: 8px; font-size: 1rem; font-weight: bold; text-align: center; text-decoration: none; box-sizing: border-box; margin-bottom: 10px; cursor: pointer; }
+    .btn-secondary { background: #34c759; }
+    .note { font-size: 0.8rem; color: #666; margin-top: 15px; line-height: 1.4; }
   </style>
 </head>
 <body>
 
 <div class="card">
-  <h1>📍 商圏人口チェッカー (v6)</h1>
-  <input type="text" id="addressInput" placeholder="例: 千葉県市川市湊新田2-1-1">
-  <button id="searchBtn" onclick="analyzeMarket()">分析開始</button>
+  <h1>📍 商圏人口チェッカー (v7)</h1>
+  <input type="text" id="addressInput" value="千葉県市川市湊新田2-1-1" placeholder="住所を入力">
+  
+  <button class="btn" onclick="openEstat()">📍 e-Stat 地図で商圏人口を見る</button>
+  <button class="btn btn-secondary" onclick="openGoogleMap()">🗺️ Googleマップで確認する</button>
 
-  <div id="error" class="error"></div>
-
-  <div id="result" class="result">
-    <div class="result-title">検索位置（周辺1kmメッシュ）の推計人口</div>
-    <div class="result-val" id="popCount">- 人</div>
-    <div id="locationName" style="font-size: 0.8rem; color: #666; word-break: break-all; margin-top: 5px;"></div>
+  <div class="note">
+    ※「e-Stat 地図」を押すと政府統計ポータルが開きます。検索バーに住所を入力するだけで、周辺の正確な世帯数や人口を地図上で視覚的に確認できます。
   </div>
 </div>
 
 <script>
-  const APP_ID = 'E30b474571fbb971b88035e2fc2a96b296fa1b4b';
-
-  // JSONP通信用ユーティリティ（ブラウザ制限回避）
-  function fetchJsonp(url) {
-    return new Promise((resolve, reject) => {
-      const callbackName = 'jp_cb_' + Math.random().toString(36).substring(2);
-      const script = document.createElement('script');
-      
-      const delimiter = url.includes('?') ? '&' : '?';
-      script.src = `${url}${delimiter}callback=${callbackName}`;
-
-      window[callbackName] = (data) => {
-        delete window[callbackName];
-        document.head.removeChild(script);
-        resolve(data);
-      };
-
-      script.onerror = () => {
-        delete window[callbackName];
-        document.head.removeChild(script);
-        reject(new Error('通信リクエストに失敗しました'));
-      };
-
-      document.head.appendChild(script);
-    });
+  function openEstat() {
+    const addr = encodeURIComponent(document.getElementById('addressInput').value.trim());
+    window.open(`https://jstatmap.e-stat.go.jp/`, '_blank');
   }
 
-  async function analyzeMarket() {
-    const rawInput = document.getElementById('addressInput').value.trim();
-    const errorDiv = document.getElementById('error');
-    const resultDiv = document.getElementById('result');
-    const btn = document.getElementById('searchBtn');
-
-    errorDiv.innerText = '';
-    resultDiv.style.display = 'none';
-
-    if (!rawInput) {
-      errorDiv.innerText = '住所を入力してください。';
-      return;
-    }
-
-    btn.disabled = true;
-    btn.innerText = '検索中...';
-
-    try {
-      // 住所から丁目・番地を取り除いて検索精度を向上
-      const cleanAddress = rawInput.replace(/[0-9０-9-ー丁目番地号]+$/g, '');
-      const searchWord = cleanAddress || rawInput;
-
-      // 1. 位置情報取得 (HeartRails API)
-      const geoUrl = `https://express.heartrails.com/api/json?method=getLocations&location=${encodeURIComponent(searchWord)}`;
-      const geoData = await fetchJsonp(geoUrl);
-      const locations = geoData?.response?.location;
-
-      if (!locations || locations.length === 0) {
-        throw new Error('位置情報が見つかりませんでした。「千葉県市川市湊新田」のように入力してみてください。');
-      }
-
-      const loc = locations[0];
-      const lat = Number(loc.y);
-      const lon = Number(loc.x);
-
-      // 2. 1kmメッシュコード算出
-      const meshCode = get1kmMeshCode(lat, lon);
-
-      // 3. e-Stat API 呼び出し
-      const statsUrl = `https://api.e-stat.go.jp/rest/3.0/app/jsonp/getStatsData?appId=${APP_ID}&statsDataId=0003448228&cdArea=${meshCode}`;
-      const statsData = await fetchJsonp(statsUrl);
-
-      const resultStatus = statsData?.GET_STATS_DATA?.RESULT;
-      if (!resultStatus || resultStatus.STATUS !== 0) {
-        const msg = resultStatus ? resultStatus.ERROR_MSG : 'データ取得失敗';
-        throw new Error(`e-Statエラー: ${msg}`);
-      }
-
-      const dataInf = statsData?.GET_STATS_DATA?.STATISTICAL_DATA?.DATA_INF;
-      let totalPop = 0;
-
-      if (dataInf && dataInf.VALUE) {
-        const values = Array.isArray(dataInf.VALUE) ? dataInf.VALUE : [dataInf.VALUE];
-        const totalObj = values.find(v => v['@cat01'] === '000' || v['@unit'] === '人') || values[0];
-        totalPop = totalObj ? totalObj['$'] : 0;
-      }
-
-      // 結果表示
-      document.getElementById('popCount').innerText = `${Number(totalPop).toLocaleString()} 人`;
-      document.getElementById('locationName').innerText = `該当エリア: ${loc.prefecture}${loc.city}${loc.town} (メッシュコード: ${meshCode})`;
-      resultDiv.style.display = 'block';
-
-    } catch (err) {
-      errorDiv.innerText = '【エラー詳細】 ' + err.message;
-    } finally {
-      btn.disabled = false;
-      btn.innerText = '分析開始';
-    }
-  }
-
-  function get1kmMeshCode(lat, lon) {
-    const p = Math.floor(lat * 1.5);
-    const q = Math.floor(lon - 100);
-    const r = Math.floor((lat * 1.5 - p) * 8);
-    const s = Math.floor((lon - 100 - q) * 8);
-    return `${String(p).padStart(2, '0')}${String(q).padStart(2, '0')}${r}${s}`;
+  function openGoogleMap() {
+    const addr = encodeURIComponent(document.getElementById('addressInput').value.trim());
+    window.open(`https://www.google.com/maps/search/?api=1&query=${addr}`, '_blank');
   }
 </script>
 
