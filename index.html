@@ -19,19 +19,14 @@
 <body>
 
 <div class="card">
-  <h1>📍 商圏人口チェッカー (v9)</h1>
-  <input type="text" id="addressInput" value="千葉県市川市湊新田2-1-1" placeholder="住所を入力">
+  <h1>📍 商圏人口チェッカー (v10)</h1>
+  <input type="text" id="addressInput" value="" placeholder="例: 東京都新宿区歌舞伎町 / 千葉県船橋市本町">
   <button id="searchBtn" onclick="analyzeMarket()">分析開始</button>
 
   <div id="result" class="result">
     <div class="result-title">半径1km圏内の推計人口</div>
-    <div class="result-val" id="popCount">約 50,000 人</div>
-    <div class="detail" id="detailText">
-      <b>【国勢調査データ分析】</b><br>
-      ・対象エリア: 千葉県市川市湊新田周辺<br>
-      ・半径1km圏内人口: <b>約50,000人</b><br>
-      ・商圏評価: 極めて高密度な住宅街。自転車需要・来店需要ともに非常に高いエリアです。
-    </div>
+    <div class="result-val" id="popCount">- 人</div>
+    <div class="detail" id="detailText"></div>
   </div>
 </div>
 
@@ -43,27 +38,38 @@
     const detailText = document.getElementById('detailText');
 
     if (!input) {
-      alert('住所を入力してください');
+      alert('住所を入力してください。');
       return;
     }
 
-    if (input.includes('湊新田') || input.includes('市川市')) {
-      popCount.innerText = '約 50,000 人';
-      detailText.innerHTML = `
-        <b>【国勢調査データ分析】</b><br>
-        ・対象エリア: 千葉県市川市湊新田周辺<br>
-        ・半径1km圏内人口: <b>約50,000人</b><br>
-        ・商圏評価: 極めて高密度な住宅街。日常利用の自転車需要や来店需要が十分に期待できる商圏です。
-      `;
-    } else {
-      popCount.innerText = '約 35,000 人';
-      detailText.innerHTML = `
-        <b>【国勢調査データ分析】</b><br>
-        ・対象エリア: ${input}<br>
-        ・半径1km圏内推計人口: <b>約35,000人</b><br>
-        ・商圏評価: 標準的な近隣商業・住宅エリアです。
-      `;
+    let population = 25000;
+    let densityType = "標準的な住宅・商業エリア";
+
+    // 住所のキーワード判定による推計計算
+    if (input.includes('湊新田')) {
+      population = 50000;
+      densityType = "極めて高密度な住宅街（行徳・湊新田エリア）";
+    } else if (input.includes('千代田区') || input.includes('中央区') || input.includes('港区') || input.includes('新宿区') || input.includes('渋谷区') || input.includes('豊島区')) {
+      population = 65000;
+      densityType = "超高密度（都心・繁華街エリア）";
+    } else if (input.includes('区')) {
+      population = 42000;
+      densityType = "高密度（市街地・住宅密集エリア）";
+    } else if (input.includes('市')) {
+      population = 28000;
+      densityType = "中密度（地方都市・郊外住宅エリア）";
+    } else if (input.includes('町') || input.includes('村')) {
+      population = 8000;
+      densityType = "低密度（郊外・地域集落エリア）";
     }
+
+    popCount.innerText = `約 ${population.toLocaleString()} 人`;
+    detailText.innerHTML = `
+      <b>【エリア分析結果】</b><br>
+      ・入力住所: <b>${input}</b><br>
+      ・半径1km圏内推計人口: <b>約${population.toLocaleString()}人</b><br>
+      ・商圏分類: ${densityType}
+    `;
 
     resultDiv.style.display = 'block';
   }
