@@ -20,7 +20,7 @@
 <body>
 
 <div class="card">
-  <h1>📍 商圏人口チェッカー (v2)</h1>
+  <h1>📍 商圏人口チェッカー (v3)</h1>
   <input type="text" id="addressInput" placeholder="例: 千葉県市川市湊新田2-1-1">
   <button id="searchBtn" onclick="analyzeMarket()">分析開始</button>
 
@@ -54,23 +54,23 @@
     btn.innerText = '検索中...';
 
     try {
-      // 1. ジオコーディングAPI
-      const geoUrl = `https://msearch.gsi.go.jp/address-search-api/msearch/search?q=${encodeURIComponent(addressInput)}`;
+      // 1. ジオコーディングAPI (HeartRails Express API)
+      const geoUrl = `https://express.heartrails.com/api/json?method=getLocations&location=${encodeURIComponent(addressInput)}`;
       const geoRes = await fetch(geoUrl);
-      if (!geoRes.ok) throw new Error('位置情報サーバーへの接続に失敗しました。');
-      
       const geoData = await geoRes.json();
-      if (!geoData || geoData.length === 0) {
-        throw new Error('住所の位置情報を取得できませんでした。都道府県名から詳しく入力してください。');
+
+      if (!geoData.response || !geoData.response.location || geoData.response.location.length === 0) {
+        throw new Error('住所の位置情報を特定できませんでした。「千葉県市川市...」のように入力してみてください。');
       }
 
-      const lon = geoData[0].geometry.coordinates[0];
-      const lat = geoData[0].geometry.coordinates[1];
+      const loc = geoData.response.location[0];
+      const lat = parseFloat(loc.y); // 緯度
+      const lon = parseFloat(loc.x); // 経度
 
       // 2. 1kmメッシュコード計算 (8桁)
       const meshCode = get1kmMeshCode(lat, lon);
 
-      // 3. e-Stat API
+      // 3. e-Stat API (2020年国勢調査 1kmメッシュ人口)
       const statsUrl = `https://api.e-stat.go.jp/rest/3.0/app/json/getStatsData?appId=${APP_ID}&statsDataId=0003448228&cdArea=${meshCode}`;
       const statsRes = await fetch(statsUrl);
       const statsData = await statsRes.json();
@@ -91,7 +91,7 @@
 
       // 結果表示
       document.getElementById('popCount').innerText = `${Number(totalPop).toLocaleString()} 人`;
-      document.getElementById('locationName').innerText = `該当メッシュ: ${meshCode} (緯度:${lat.toFixed(4)}, 経度:${lon.toFixed(4)})`;
+      document.getElementById('locationName').innerText = `該当メッシュ: ${meshCode} (${loc.city}${loc.town})`;
       resultDiv.style.display = 'block';
 
     } catch (err) {
