@@ -14,14 +14,14 @@
     .result { margin-top: 20px; padding: 15px; background: #eef6ff; border-radius: 8px; display: none; }
     .result-title { font-size: 0.9rem; color: #666; }
     .result-val { font-size: 1.8rem; font-weight: bold; color: #007aff; margin: 5px 0; }
-    .error { color: #d93025; margin-top: 10px; font-size: 0.9rem; }
+    .error { color: #d93025; margin-top: 10px; font-size: 0.85rem; line-height: 1.4; word-break: break-all; }
   </style>
 </head>
 <body>
 
 <div class="card">
-  <h1>📍 商圏人口チェッカー</h1>
-  <input type="text" id="addressInput" placeholder="例: 東京都新宿区西新宿2-8-1">
+  <h1>📍 商圏人口チェッカー (v2)</h1>
+  <input type="text" id="addressInput" placeholder="例: 千葉県市川市湊新田2-1-1">
   <button id="searchBtn" onclick="analyzeMarket()">分析開始</button>
 
   <div id="error" class="error"></div>
@@ -29,7 +29,7 @@
   <div id="result" class="result">
     <div class="result-title">検索位置（周辺1kmメッシュ）の推計人口</div>
     <div class="result-val" id="popCount">- 人</div>
-    <div id="locationName" style="font-size: 0.8rem; color: #666;"></div>
+    <div id="locationName" style="font-size: 0.8rem; color: #666; word-break: break-all; margin-top: 5px;"></div>
   </div>
 </div>
 
@@ -37,7 +37,7 @@
   const APP_ID = 'E30b474571fbb971b88035e2fc2a96b296fa1b4b';
 
   async function analyzeMarket() {
-    const address = document.getElementById('addressInput').value;
+    const addressInput = document.getElementById('addressInput').value.trim();
     const errorDiv = document.getElementById('error');
     const resultDiv = document.getElementById('result');
     const btn = document.getElementById('searchBtn');
@@ -45,7 +45,7 @@
     errorDiv.innerText = '';
     resultDiv.style.display = 'none';
 
-    if (!address) {
+    if (!addressInput) {
       errorDiv.innerText = '住所を入力してください。';
       return;
     }
@@ -54,57 +54,60 @@
     btn.innerText = '検索中...';
 
     try {
-      // 1. 国土交通省のジオコーディングAPIで住所を「緯度・経度」に変換
-      const geoUrl = `https://msearch.gsi.go.jp/address-search-api/msearch/search?q=${encodeURIComponent(address)}`;
+      // 1. ジオコーディングAPI
+      const geoUrl = `https://msearch.gsi.go.jp/address-search-api/msearch/search?q=${encodeURIComponent(addressInput)}`;
       const geoRes = await fetch(geoUrl);
+      if (!geoRes.ok) throw new Error('位置情報サーバーへの接続に失敗しました。');
+      
       const geoData = await geoRes.json();
-
       if (!geoData || geoData.length === 0) {
-        throw new Error('住所の位置情報を取得できませんでした。');
+        throw new Error('住所の位置情報を取得できませんでした。都道府県名から詳しく入力してください。');
       }
 
-      const lon = geoData[0].geometry.coordinates[0]; // 経度
-      const lat = geoData[0].geometry.coordinates[1]; // 緯度
+      const lon = geoData[0].geometry.coordinates[0];
+      const lat = geoData[0].geometry.coordinates[1];
 
-      // 2. 緯度・経度から「標準地域メッシュコード（1kmメッシュ）」を計算
+      // 2. 1kmメッシュコード計算 (8桁)
       const meshCode = get1kmMeshCode(lat, lon);
 
-      // 3. e-Stat APIから該当メッシュの国勢調査人口データを取得（2020年国勢調査）
-      const statsUrl = `https://api.e-stat.go.jp/rest/3.0/app/json/getStatsData?appId=${APP_ID}&statsDataId=0003448228&code=${meshCode}`;
+      // 3. e-Stat API
+      const statsUrl = `https://api.e-stat.go.jp/rest/3.0/app/json/getStatsData?appId=${APP_ID}&statsDataId=0003448228&cdArea=${meshCode}`;
       const statsRes = await fetch(statsUrl);
       const statsData = await statsRes.json();
 
-      const values = statsData.GET_STATS_DATA.STATISTICAL_DATA.DATA_INF.VALUE;
-      let totalPop = 0;
-
-      if (Array.isArray(values)) {
-        // 総数（総人口）のデータ項目を取得
-        const totalObj = values.find(v => v['@cat01'] === '000' || v['@unit'] === '人');
-        totalPop = totalObj ? totalObj['$'] : values[0]['$'];
-      } else if (values) {
-        totalPop = values['$'];
+      const resultStatus = statsData?.GET_STATS_DATA?.RESULT;
+      if (resultStatus && resultStatus.STATUS !== 0) {
+        throw new Error(`e-Statエラー [コード:${resultStatus.STATUS}]: ${resultStatus.ERROR_MSG}`);
       }
 
-      // 結果を表示
+      const dataInf = statsData?.GET_STATS_DATA?.STATISTICAL_DATA?.DATA_INF;
+      let totalPop = 0;
+
+      if (dataInf && dataInf.VALUE) {
+        const values = Array.isArray(dataInf.VALUE) ? dataInf.VALUE : [dataInf.VALUE];
+        const totalObj = values.find(v => v['@cat01'] === '000' || v['@unit'] === '人') || values[0];
+        totalPop = totalObj ? totalObj['$'] : 0;
+      }
+
+      // 結果表示
       document.getElementById('popCount').innerText = `${Number(totalPop).toLocaleString()} 人`;
-      document.getElementById('locationName').innerText = `該当メッシュコード: ${meshCode} (緯度:${lat.toFixed(4)}, 経度:${lon.toFixed(4)})`;
+      document.getElementById('locationName').innerText = `該当メッシュ: ${meshCode} (緯度:${lat.toFixed(4)}, 経度:${lon.toFixed(4)})`;
       resultDiv.style.display = 'block';
 
     } catch (err) {
-      errorDiv.innerText = 'エラーが発生しました: ' + err.message;
+      errorDiv.innerText = '【エラー詳細】 ' + err.message;
     } finally {
       btn.disabled = false;
       btn.innerText = '分析開始';
     }
   }
 
-  // 緯度経度から1kmメッシュコードを求める計算関数
   function get1kmMeshCode(lat, lon) {
     const p = Math.floor(lat * 1.5);
     const q = Math.floor(lon - 100);
     const r = Math.floor((lat * 1.5 - p) * 8);
     const s = Math.floor((lon - 100 - q) * 8);
-    return `${p}${q}${r}${s}`;
+    return `${String(p).padStart(2, '0')}${String(q).padStart(2, '0')}${r}${s}`;
   }
 </script>
 
