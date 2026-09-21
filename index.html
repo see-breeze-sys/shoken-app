@@ -20,7 +20,7 @@
 <body>
 
 <div class="card">
-  <h1>📍 商圏人口チェッカー (v5)</h1>
+  <h1>📍 商圏人口チェッカー (v6)</h1>
   <input type="text" id="addressInput" placeholder="例: 千葉県市川市湊新田2-1-1">
   <button id="searchBtn" onclick="analyzeMarket()">分析開始</button>
 
@@ -35,6 +35,31 @@
 
 <script>
   const APP_ID = 'E30b474571fbb971b88035e2fc2a96b296fa1b4b';
+
+  // JSONP通信用ユーティリティ（ブラウザ制限回避）
+  function fetchJsonp(url) {
+    return new Promise((resolve, reject) => {
+      const callbackName = 'jp_cb_' + Math.random().toString(36).substring(2);
+      const script = document.createElement('script');
+      
+      const delimiter = url.includes('?') ? '&' : '?';
+      script.src = `${url}${delimiter}callback=${callbackName}`;
+
+      window[callbackName] = (data) => {
+        delete window[callbackName];
+        document.head.removeChild(script);
+        resolve(data);
+      };
+
+      script.onerror = () => {
+        delete window[callbackName];
+        document.head.removeChild(script);
+        reject(new Error('通信リクエストに失敗しました'));
+      };
+
+      document.head.appendChild(script);
+    });
+  }
 
   async function analyzeMarket() {
     const rawInput = document.getElementById('addressInput').value.trim();
@@ -54,16 +79,13 @@
     btn.innerText = '検索中...';
 
     try {
-      // 1. 住所から数字や番地（2-1-1や1丁目など）を取り除いて町名レベルで安定検索
+      // 住所から丁目・番地を取り除いて検索精度を向上
       const cleanAddress = rawInput.replace(/[0-9０-9-ー丁目番地号]+$/g, '');
       const searchWord = cleanAddress || rawInput;
 
-      // 2. ジオコーディング (HeartRails API)
+      // 1. 位置情報取得 (HeartRails API)
       const geoUrl = `https://express.heartrails.com/api/json?method=getLocations&location=${encodeURIComponent(searchWord)}`;
-      const geoRes = await fetch(geoUrl);
-      if (!geoRes.ok) throw new Error('位置情報サーバー通信エラー');
-      
-      const geoData = await geoRes.json();
+      const geoData = await fetchJsonp(geoUrl);
       const locations = geoData?.response?.location;
 
       if (!locations || locations.length === 0) {
@@ -74,23 +96,16 @@
       const lat = Number(loc.y);
       const lon = Number(loc.x);
 
-      if (isNaN(lat) || isNaN(lon)) {
-        throw new Error('緯度経度の取得に失敗しました。');
-      }
-
-      // 3. 1kmメッシュコード計算 (8桁)
+      // 2. 1kmメッシュコード算出
       const meshCode = get1kmMeshCode(lat, lon);
 
-      // 4. e-Stat API 呼び出し
-      const statsUrl = `https://api.e-stat.go.jp/rest/3.0/app/json/getStatsData?appId=${APP_ID}&statsDataId=0003448228&cdArea=${meshCode}`;
-      const statsRes = await fetch(statsUrl);
-      if (!statsRes.ok) throw new Error('e-Stat サーバー通信エラー');
-      
-      const statsData = await statsRes.json();
-      const resultStatus = statsData?.GET_STATS_DATA?.RESULT;
+      // 3. e-Stat API 呼び出し
+      const statsUrl = `https://api.e-stat.go.jp/rest/3.0/app/jsonp/getStatsData?appId=${APP_ID}&statsDataId=0003448228&cdArea=${meshCode}`;
+      const statsData = await fetchJsonp(statsUrl);
 
+      const resultStatus = statsData?.GET_STATS_DATA?.RESULT;
       if (!resultStatus || resultStatus.STATUS !== 0) {
-        const msg = resultStatus ? resultStatus.ERROR_MSG : '未知のエラー';
+        const msg = resultStatus ? resultStatus.ERROR_MSG : 'データ取得失敗';
         throw new Error(`e-Statエラー: ${msg}`);
       }
 
