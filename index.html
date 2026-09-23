@@ -47,6 +47,7 @@
   let circle1000;
 
   function initMap() {
+    // 市川市付近の初期位置
     const initialLat = 35.686;
     const initialLng = 139.907;
 
@@ -72,43 +73,42 @@
       let lat = null;
       let lon = null;
 
-      // 1. 国土地理院の住所検索API（番地レベルでの検索に対応）
-      const gsiUrl = `https://msearch.gsi.go.jp/address-search/AddressSearch?q=${encodeURIComponent(rawInput)}`;
-      const gsiRes = await fetch(gsiUrl);
-      const gsiData = await gsiRes.json();
+      // 1. 番地対応ジオコーダー（ハートレール/OSM統合API）でピンポイント検索
+      const apiUrl = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(rawInput)}&addressdetails=1`;
+      let response = await fetch(apiUrl);
+      let data = await response.json();
 
-      if (gsiData && gsiData.length > 0) {
-        // [経度, 緯度] の順で返ってくるため指定
-        lon = gsiData[0].geometry.coordinates[0];
-        lat = gsiData[0].geometry.coordinates[1];
+      if (data && data.length > 0) {
+        lat = parseFloat(data[0].lat);
+        lon = parseFloat(data[0].lon);
       } else {
-        // 2. 万が一国土地理院でヒットしない場合のフォールバック（町丁検索）
-        const cleanAddress = rawInput.replace(/[0-9０-9-ー丁目番地号\s]+$/g, '');
-        const osmRes = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(cleanAddress || rawInput)}`);
-        const osmData = await osmRes.json();
-        if (osmData && osmData.length > 0) {
-          lat = parseFloat(osmData[0].lat);
-          lon = parseFloat(osmData[0].lon);
+        // 万が一ヒットしない場合のフォールバック処理
+        const cleanAddr = rawInput.replace(/[0-9０-9-ー丁目番地号\s]+$/g, '');
+        response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(cleanAddr)}`);
+        data = await response.json();
+        if (data && data.length > 0) {
+          lat = parseFloat(data[0].lat);
+          lon = parseFloat(data[0].lon);
         }
       }
 
       if (!lat || !lon) {
-        alert("該当する住所が見つかりませんでした。");
+        alert("住所の位置を特定できませんでした。");
         return;
       }
 
-      // 3. 画面上の既存マーカー・円をクリア
+      // 描画クリア
       if (marker) map.removeLayer(marker);
       if (circle500) map.removeLayer(circle500);
       if (circle1000) map.removeLayer(circle1000);
 
-      // 4. 指定番地の座標を中心に表示
+      // 指定の座標を中心に地図を移動
       map.setView([lat, lon], 15);
 
-      // 5. ピン（マーカー）の設置
+      // ピンの設置
       marker = L.marker([lat, lon]).addTo(map).bindPopup(rawInput).openPopup();
 
-      // 6. 外側：半径1km (1,000m) 青色の円
+      // 半径1km 円 (青)
       circle1000 = L.circle([lat, lon], {
         color: '#007aff',
         fillColor: '#007aff',
@@ -116,7 +116,7 @@
         radius: 1000
       }).addTo(map);
 
-      // 7. 内側：半径500m 赤色の円
+      // 半径500m 円 (赤)
       circle500 = L.circle([lat, lon], {
         color: '#ff3b30',
         fillColor: '#ff3b30',
@@ -125,7 +125,7 @@
       }).addTo(map);
 
     } catch (err) {
-      alert("住所の検索中にエラーが発生しました。");
+      alert("検索処理でエラーが発生しました。");
     } finally {
       btn.disabled = false;
       btn.innerText = '表示';
