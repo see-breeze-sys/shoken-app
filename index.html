@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>商圏同心円マップ</title>
-  <!-- Leaflet（地図ライブラリ）CSS -->
+  <!-- Leaflet CSS -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <style>
     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 0; padding: 15px; background: #f5f5f7; color: #333; }
@@ -25,7 +25,7 @@
 <div class="card">
   <h1>📍 商圏同心円マップ</h1>
   <div class="input-group">
-    <input type="text" id="addressInput" value="千葉県市川市湊新田2-1-1" placeholder="住所を入力">
+    <input type="text" id="addressInput" value="千葉県市川市湊新田2-1-1" placeholder="住所を入力（番地まで可）">
     <button id="searchBtn" onclick="searchAddress()">表示</button>
   </div>
   <div class="legend">
@@ -37,7 +37,7 @@
 <!-- 地図表示エリア -->
 <div id="map"></div>
 
-<!-- Leaflet（地図ライブラリ）JS -->
+<!-- Leaflet JS -->
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
 <script>
@@ -46,82 +46,92 @@
   let circle500;
   let circle1000;
 
-  // 地図の初期化
   function initMap() {
-    // デフォルト（市川市湊新田付近）
     const initialLat = 35.686;
     const initialLng = 139.907;
 
-    map = L.map('map').setView([initialLat, initialLng], 14);
+    map = L.map('map').setView([initialLat, initialLng], 15);
 
-    // OpenStreetMapのタイル読み込み（APIキー不要）
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19,
       attribution: '© OpenStreetMap contributors'
     }).addTo(map);
 
-    // 初期表示
     searchAddress();
   }
 
-  // 住所検索して地図と円を描画
   async function searchAddress() {
-    const address = document.getElementById("addressInput").value.trim();
+    const rawInput = document.getElementById("addressInput").value.trim();
     const btn = document.getElementById("searchBtn");
-    if (!address) return;
+    if (!rawInput) return;
 
     btn.disabled = true;
     btn.innerText = '検索中...';
 
     try {
-      // 住所から緯度経度を取得（OSM Nominatim API）
-      const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}`);
-      const data = await response.json();
+      let lat = null;
+      let lon = null;
 
-      if (!data || data.length === 0) {
-        alert("住所が見つかりませんでした。市区町村名から入力してみてください。");
+      // 1. 国土地理院の住所検索API（番地レベルでの検索に対応）
+      const gsiUrl = `https://msearch.gsi.go.jp/address-search/AddressSearch?q=${encodeURIComponent(rawInput)}`;
+      const gsiRes = await fetch(gsiUrl);
+      const gsiData = await gsiRes.json();
+
+      if (gsiData && gsiData.length > 0) {
+        // [経度, 緯度] の順で返ってくるため指定
+        lon = gsiData[0].geometry.coordinates[0];
+        lat = gsiData[0].geometry.coordinates[1];
+      } else {
+        // 2. 万が一国土地理院でヒットしない場合のフォールバック（町丁検索）
+        const cleanAddress = rawInput.replace(/[0-9０-9-ー丁目番地号\s]+$/g, '');
+        const osmRes = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(cleanAddress || rawInput)}`);
+        const osmData = await osmRes.json();
+        if (osmData && osmData.length > 0) {
+          lat = parseFloat(osmData[0].lat);
+          lon = parseFloat(osmData[0].lon);
+        }
+      }
+
+      if (!lat || !lon) {
+        alert("該当する住所が見つかりませんでした。");
         return;
       }
 
-      const lat = parseFloat(data[0].lat);
-      const lon = parseFloat(data[0].lon);
-
-      // 既存の要素（マーカー・円）を削除
+      // 3. 画面上の既存マーカー・円をクリア
       if (marker) map.removeLayer(marker);
       if (circle500) map.removeLayer(circle500);
       if (circle1000) map.removeLayer(circle1000);
 
-      // 地図の中心を移動
-      map.setView([lat, lon], 14);
+      // 4. 指定番地の座標を中心に表示
+      map.setView([lat, lon], 15);
 
-      // 1. ピン（マーカー）の設置
-      marker = L.marker([lat, lon]).addTo(map).bindPopup(address).openPopup();
+      // 5. ピン（マーカー）の設置
+      marker = L.marker([lat, lon]).addTo(map).bindPopup(rawInput).openPopup();
 
-      // 2. 外側：半径1km (1,000m) 青色の円
+      // 6. 外側：半径1km (1,000m) 青色の円
       circle1000 = L.circle([lat, lon], {
         color: '#007aff',
         fillColor: '#007aff',
-        fillOpacity: 0.15,
+        fillOpacity: 0.12,
         radius: 1000
       }).addTo(map);
 
-      // 3. 内側：半径500m 赤色の円
+      // 7. 内側：半径500m 赤色の円
       circle500 = L.circle([lat, lon], {
         color: '#ff3b30',
         fillColor: '#ff3b30',
-        fillOpacity: 0.2,
+        fillOpacity: 0.18,
         radius: 500
       }).addTo(map);
 
     } catch (err) {
-      alert("検索中にエラーが発生しました。");
+      alert("住所の検索中にエラーが発生しました。");
     } finally {
       btn.disabled = false;
       btn.innerText = '表示';
     }
   }
 
-  // ページ読み込み時に初期化
   window.onload = initMap;
 </script>
 
